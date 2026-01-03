@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Clone - Private Rooms</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, sans-serif; 
+            background-color: #e5ddd5; 
+            margin: 0; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+        }
+
+        /* Room Selection Header */
+        .header { 
+            background: #075e54; 
+            color: white; 
+            padding: 10px 15px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        .header-top { display: flex; justify-content: space-between; align-items: center; }
+        .room-controls { display: flex; gap: 8px; }
+        
+        input { border: none; border-radius: 20px; padding: 8px 15px; outline: none; }
+        .btn-join { background: #128c7e; color: white; border: none; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+
+        /* Chat Area */
+        #chat-box { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px;
+            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+        }
+
+        /* WhatsApp Bubble Animations */
+        @keyframes pop {
+            0% { opacity: 0; transform: scale(0.9) translateY(10px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .msg { 
+            max-width: 75%; 
+            padding: 8px 12px; 
+            border-radius: 8px; 
+            font-size: 14px; 
+            box-shadow: 0 1px 1px rgba(0,0,0,0.1); 
+            animation: pop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            word-wrap: break-word;
+        }
+
+        .sent { align-self: flex-end; background-color: #dcf8c6; border-top-right-radius: 0; }
+        .received { align-self: flex-start; background-color: #ffffff; border-top-left-radius: 0; }
+
+        .user-label { font-size: 11px; font-weight: bold; color: #075e54; display: block; margin-bottom: 2px; }
+        .timestamp { font-size: 10px; color: #888; text-align: right; margin-top: 4px; }
+
+        /* Bottom Input Bar */
+        .input-area { background: #f0f0f0; padding: 12px; display: flex; gap: 10px; align-items: center; }
+        #message-input { flex: 1; padding: 12px 20px; border-radius: 25px; }
+        #send-btn { 
+            background: #128c7e; color: white; border: none; 
+            width: 45px; height: 45px; border-radius: 50%; 
+            font-size: 18px; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-top">
+            <strong>WhatsApp Web JS</strong>
+            <input type="text" id="username-input" placeholder="Your Name" value="Guest">
+        </div>
+        <div class="room-controls">
+            <input type="text" id="room-input" placeholder="Room Name (e.g. Friends)">
+            <button class="btn-join" onclick="joinRoom()">Join Room</button>
+        </div>
+    </div>
+
+    <div id="chat-box">
+        <div style="text-align: center; color: #555; background: #fff3c7; padding: 5px; border-radius: 5px; font-size: 12px;">
+            Enter a Room Name and click Join to start chatting!
+        </div>
+    </div>
+
+    <div class="input-area">
+        <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+        <button id="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+       const firebaseConfig = {
+  apiKey: "AIzaSyBtN4t9f7CKw5g8WnWx5-1FrQU9T5OBDfI",
+  authDomain: "wavechat-23262.firebaseapp.com",
+  databaseURL: "https://wavechat-23262-default-rtdb.firebaseio.com",
+  projectId: "wavechat-23262",
+  storageBucket: "wavechat-23262.firebasestorage.app",
+  messagingSenderId: "65476746734",
+  appId: "1:65476746734:web:639bed1dcd32ea4fd602ff",
+  measurementId: "G-E8P5ZV6MC3"
+};
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let currentRoomRef = null;
+
+        // --- JOIN ROOM LOGIC ---
+        function joinRoom() {
+            const roomName = document.getElementById('room-input').value.trim().toLowerCase();
+            if (!roomName) return alert("Please enter a room name!");
+
+            // 1. Clear UI and update title
+            const chatBox = document.getElementById('chat-box');
+            chatBox.innerHTML = `<div style="text-align:center; font-size:12px; color:#777;">Connected to: ${roomName}</div>`;
+
+            // 2. Detach old listener if switching rooms
+            if (currentRoomRef) currentRoomRef.off();
+
+            // 3. Point to new JSON path: rooms/[roomName]
+            currentRoomRef = db.ref("rooms/" + roomName);
+
+            // 4. Listen for new messages
+            currentRoomRef.limitToLast(50).on("child_added", (snapshot) => {
+                const data = snapshot.val();
+                renderMessage(data);
+            });
+        }
+
+        // --- SEND MESSAGE LOGIC ---
+        function sendMessage() {
+            const text = document.getElementById('message-input').value.trim();
+            const user = document.getElementById('username-input').value.trim();
+
+            if (!currentRoomRef) return alert("Join a room first!");
+            if (text === "") return;
+
+            currentRoomRef.push({
+                username: user,
+                text: text,
+                timestamp: Date.now()
+            });
+
+            document.getElementById('message-input').value = "";
+        }
+
+        // --- RENDER MESSAGE TO SCREEN ---
+        function renderMessage(data) {
+            const chatBox = document.getElementById('chat-box');
+            const currentUser = document.getElementById('username-input').value.trim();
+            const isMe = data.username === currentUser;
+            const time = new Date(data.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `msg ${isMe ? 'sent' : 'received'}`;
+            msgDiv.innerHTML = `
+                ${!isMe ? `<span class="user-label">${data.username}</span>` : ''}
+                <div>${data.text}</div>
+                <div class="timestamp">${time}</div>
+            `;
+
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Enter key support
+        document.getElementById('message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
